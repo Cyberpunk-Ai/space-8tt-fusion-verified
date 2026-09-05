@@ -19,11 +19,30 @@ async function loadSessionProfile() {
     return;
   }
 
-  const { data: row } = await supabase
+  let { data: row } = await supabase
     .from("profiles")
     .select("*")
     .eq("auth_user_id", authUser.id)
     .maybeSingle();
+
+  // First sign-in after confirming an email: create the member profile once.
+  if (!row) {
+    const base =
+      (authUser.email?.split("@")[0] || "member").replace(/[^a-z0-9_]/gi, "").toLowerCase() ||
+      "member";
+    const displayName =
+      (authUser.user_metadata?.["display_name"] as string | undefined)?.trim() || base;
+    const { data: created } = await supabase
+      .from("profiles")
+      .insert({
+        auth_user_id: authUser.id,
+        username: `${base}${Math.floor(Math.random() * 9000 + 1000)}`,
+        display_name: displayName,
+      })
+      .select("*")
+      .maybeSingle();
+    row = created ?? null;
+  }
 
   if (row) {
     const profile = rowToProfile(row as Record<string, unknown>);
