@@ -56,10 +56,23 @@ function AuthPage() {
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
-          options: { emailRedirectTo: `${window.location.origin}/` },
+          options: {
+            emailRedirectTo: `${window.location.origin}/feed`,
+            data: { display_name: displayName.trim() || undefined },
+          },
         });
         if (error) throw error;
-        if (data.user) await ensureProfile(data.user.id, email);
+
+        // Email confirmation is on: signUp returns no session, so the person is
+        // not signed in yet. Don't pretend they are — keep them on this page.
+        if (!data.session) {
+          toast.success("Check your email to confirm your account, then sign in.");
+          setMode("signin");
+          setPassword("");
+          return;
+        }
+
+        await ensureProfile(data.session.user.id, email);
         toast.success("Account created — welcome to Spaces!");
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -67,7 +80,7 @@ function AuthPage() {
         if (data.user) await ensureProfile(data.user.id, email);
         toast.success("Signed in");
       }
-      void navigate({ to: "/" });
+      void navigate({ to: "/feed" });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Authentication failed");
     } finally {
