@@ -129,8 +129,11 @@ export async function getBookmarkedPosts(limit = 50): Promise<Post[]> {
     .map((row) => (row.posts ? rowToPost(row.posts) : null))
     .filter(Boolean) as Post[];
   await hydrateAuthors(posts.map((p) => p.user_id));
+  await hydrateEngagement(posts);
+  for (const post of posts) post.bookmarkedByMe = true;
   return posts;
 }
+
 
 async function hydrateAuthors(ids: string[]) {
   const unique = Array.from(new Set(ids.filter(Boolean)));
