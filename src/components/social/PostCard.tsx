@@ -31,6 +31,7 @@ import { UserBadge } from "@/components/social/UserBadge";
 import { TimeAgo } from "@/components/social/TimeAgo";
 import { TipModal } from "@/components/social/TipModal";
 import { ReportModal } from "@/components/social/ReportModal";
+import { VideoPlayer } from "@/components/social/VideoPlayer";
 import { compact } from "@/lib/formatters";
 import type { Post, Comment, Poll } from "@/lib/types";
 import { getProfile, useProfile, currentUser } from "@/lib/profile-service";
@@ -43,6 +44,7 @@ import {
   deletePost,
   votePoll,
   sendFeedFeedback,
+  getPostComments,
 } from "@/lib/api-client";
 import { useRealtime } from "@/lib/realtime";
 import { usePlan } from "@/lib/plan-state";
@@ -258,34 +260,7 @@ function PostCardBase({
   const [isTipModalOpen, setIsTipModalOpen] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-
-  // Autoplay/Pause video when scrolling in/out of viewport
-  useEffect(() => {
-    if (!videoRef.current) return;
-    const videoEl = videoRef.current;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          videoEl.play().catch(() => {
-            // Safe catch for potential browser play block
-          });
-        } else {
-          videoEl.pause();
-        }
-      },
-      {
-        threshold: 0.3, // Play when 30% of the video card is visible
-      }
-    );
-
-    observer.observe(videoEl);
-
-    return () => {
-      observer.unobserve(videoEl);
-    };
-  }, [post.media_url]);
+  const [commentsLoaded, setCommentsLoaded] = useState(false);
 
   // Poll interactive state
   const [poll, setPoll] = useState<Poll | undefined>(post.poll || undefined);
@@ -403,19 +378,41 @@ function PostCardBase({
     }
   }
 
-  function handleShare() {
-    const shareUrl = window.location.origin + "/feed#" + post.id;
+  async function handleToggleComments() {
+    const next = !showComments;
+    setShowComments(next);
+    if (next && !commentsLoaded) {
+      setCommentsLoaded(true);
+      try {
+        const list = await getPostComments(post.id);
+        if (Array.isArray(list)) {
+          setCommentsList(list as unknown as Comment[]);
+        }
+      } catch {
+        /* keep whatever comments we already have */
+      }
+    }
+  }
+
+  async function handleShare() {
+    const shareUrl = `${window.location.origin}/feed#${post.id}`;
     if (navigator.share) {
-      navigator
-        .share({
+      try {
+        await navigator.share({
           title: `${author.display_name} on Spaces`,
-          text: post.content,
+          text: post.content.slice(0, 140),
           url: shareUrl,
-        })
-        .catch(() => {});
-    } else {
-      navigator.clipboard.writeText(shareUrl);
-      toast.success("Post link copied to clipboard!");
+        });
+        return;
+      } catch (err: any) {
+        if (err?.name === "AbortError") return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success("Post link copied to clipboard");
+    } catch {
+      toast.error("Couldn't copy the link");
     }
   }
 
@@ -603,18 +600,7 @@ function PostCardBase({
       {/* Media attachment (Image or Video) */}
       {mediaSrc && !imageError && (
         isMediaVideo(mediaSrc) || (post as any).media_type === "video" ? (
-          <div className="mt-3.5 overflow-hidden rounded-2xl border border-border/60 bg-black/90 relative w-full shadow-md group">
-            <video
-              ref={videoRef}
-              src={mediaSrc}
-              controls
-              playsInline
-              muted
-              loop
-              preload="metadata"
-              className="w-full h-auto block rounded-2xl max-h-[540px] object-cover w-full"
-            />
-          </div>
+          <VideoPlayer src={mediaSrc} />
         ) : (
           <div
             onClick={() => setShowImagePreview(true)}
@@ -762,10 +748,10 @@ function PostCardBase({
         <Action
           icon={MessageCircle}
           label="Comment"
-          count={commentsList.length}
+          count={Math.max(commentsList.length, post.commentCount || 0)}
           active={showComments}
           activeClass="text-sky-500"
-          onClick={() => setShowComments(!showComments)}
+          onClick={handleToggleComments}
         />
         <Action
           icon={Repeat2}
