@@ -153,10 +153,17 @@ function ProfilePage() {
     }));
     setFollowLoading(true);
     try {
-      await toggleFollowUser(userProfile.id);
-      toast.success(next ? `Following @${userProfile.username}` : `Unfollowed @${userProfile.username}`);
+      const res = await toggleFollowUser(userProfile.id);
+      setIsFollowing(res.following);
+      setUserProfile((p) => ({ ...p, followers: res.followers }));
+      toast.success(res.following ? `Following @${userProfile.username}` : `Unfollowed @${userProfile.username}`);
     } catch {
-      // optimistic state kept
+      setIsFollowing(!next);
+      setUserProfile((p) => ({
+        ...p,
+        followers: next ? Math.max(0, p.followers - 1) : p.followers + 1,
+      }));
+      toast.error("Couldn't update follow");
     } finally {
       setFollowLoading(false);
     }

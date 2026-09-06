@@ -94,6 +94,26 @@ export async function getPosts(
   if (error) throw error;
   const posts = (data ?? []).map((row: any) => rowToPost(row));
   await hydrateAuthors(posts.map((p: Post) => p.user_id));
+  await hydrateEngagement(posts);
+  return posts;
+}
+
+/** Marks each post with the signed-in user's like/repost/bookmark state. */
+async function hydrateEngagement(posts: Post[]) {
+  if (posts.length === 0) return posts;
+  try {
+    const { liked, reposted, bookmarked } = await getMyEngagement(posts.map((p) => p.id));
+    const likeSet = new Set(liked);
+    const repostSet = new Set(reposted);
+    const bookmarkSet = new Set(bookmarked);
+    for (const post of posts) {
+      post.likedByMe = likeSet.has(post.id);
+      post.repostedByMe = repostSet.has(post.id);
+      post.bookmarkedByMe = bookmarkSet.has(post.id);
+    }
+  } catch {
+    /* engagement flags are best-effort */
+  }
   return posts;
 }
 
@@ -109,8 +129,11 @@ export async function getBookmarkedPosts(limit = 50): Promise<Post[]> {
     .map((row) => (row.posts ? rowToPost(row.posts) : null))
     .filter(Boolean) as Post[];
   await hydrateAuthors(posts.map((p) => p.user_id));
+  await hydrateEngagement(posts);
+  for (const post of posts) post.bookmarkedByMe = true;
   return posts;
 }
+
 
 async function hydrateAuthors(ids: string[]) {
   const unique = Array.from(new Set(ids.filter(Boolean)));
@@ -378,16 +401,51 @@ export async function updateUserProfile(patch: Partial<Profile>) {
 
 export async function toggleFollowUser(targetUserId: string) {
   const userId = me();
+  if (!userId || userId === targetUserId) return { following: false, followers: 0 };
+
   const { data: existing } = await db
     .from("follows")
-    .select("id")
+    .select("follower_id")
     .eq("follower_id", userId)
-    .eq("following_id", targetUserId)
+    .eq("target_id", targetUserId)
     .maybeSingle();
-  if (existing) await db.from("follows").delete().eq("id", existing.id);
-  else await db.from("follows").insert({ follower_id: userId, following_id: targetUserId });
-  emitRealtime("follow:changed", { targetUserId, following: !existing });
-  return { following: !existing };
+
+  if (existing) {
+    const { error } = await db
+      .from("follows")
+      .delete()
+      .eq("follower_id", userId)
+      .eq("target_id", targetUserId);
+    if (error) throw error;
+  } else {
+    const { error } = await db
+      .from("follows")
+      .insert({ follower_id: userId, target_id: targetUserId });
+    if (error) throw error;
+  }
+
+  const { count } = await db
+    .from("follows")
+    .select("follower_id", { count: "exact", head: true })
+    .eq("target_id", targetUserId);
+
+  const following = !existing;
+  emitRealtime("follow:changed", { targetUserId, following, followers: count ?? 0 });
+  emitRealtime("follow", { targetUserId, following });
+  return { following, followers: count ?? 0 };
+}
+
+/** True when the signed-in user already follows `targetUserId`. */
+export async function isFollowingUser(targetUserId: string) {
+  const userId = me();
+  if (!userId || userId === targetUserId) return false;
+  const { data } = await db
+    .from("follows")
+    .select("follower_id")
+    .eq("follower_id", userId)
+    .eq("target_id", targetUserId)
+    .maybeSingle();
+  return Boolean(data);
 }
 
 export async function uploadMedia(file: File, folder: "avatars" | "posts" | "stories" | "media" | "messages" = "media") {
@@ -1167,6 +1225,7 @@ export async function globalSearch(
   ]);
   const posts = ((postRes.data ?? []) as any[]).map((row) => rowToPost(row));
   await hydrateAuthors(posts.map((p) => p.user_id));
+  await hydrateEngagement(posts);
   const profiles = ((profileRes.data ?? []) as any[]).map((row) => rowToProfile(row));
   cacheProfiles(profiles);
   return { posts, profiles, spaces: ((spaceRes.data ?? []) as any[]) as Space[] };
