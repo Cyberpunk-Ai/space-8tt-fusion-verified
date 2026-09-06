@@ -378,16 +378,51 @@ export async function updateUserProfile(patch: Partial<Profile>) {
 
 export async function toggleFollowUser(targetUserId: string) {
   const userId = me();
+  if (!userId || userId === targetUserId) return { following: false, followers: 0 };
+
   const { data: existing } = await db
     .from("follows")
-    .select("id")
+    .select("follower_id")
     .eq("follower_id", userId)
-    .eq("following_id", targetUserId)
+    .eq("target_id", targetUserId)
     .maybeSingle();
-  if (existing) await db.from("follows").delete().eq("id", existing.id);
-  else await db.from("follows").insert({ follower_id: userId, following_id: targetUserId });
-  emitRealtime("follow:changed", { targetUserId, following: !existing });
-  return { following: !existing };
+
+  if (existing) {
+    const { error } = await db
+      .from("follows")
+      .delete()
+      .eq("follower_id", userId)
+      .eq("target_id", targetUserId);
+    if (error) throw error;
+  } else {
+    const { error } = await db
+      .from("follows")
+      .insert({ follower_id: userId, target_id: targetUserId });
+    if (error) throw error;
+  }
+
+  const { count } = await db
+    .from("follows")
+    .select("follower_id", { count: "exact", head: true })
+    .eq("target_id", targetUserId);
+
+  const following = !existing;
+  emitRealtime("follow:changed", { targetUserId, following, followers: count ?? 0 });
+  emitRealtime("follow", { targetUserId, following });
+  return { following, followers: count ?? 0 };
+}
+
+/** True when the signed-in user already follows `targetUserId`. */
+export async function isFollowingUser(targetUserId: string) {
+  const userId = me();
+  if (!userId || userId === targetUserId) return false;
+  const { data } = await db
+    .from("follows")
+    .select("follower_id")
+    .eq("follower_id", userId)
+    .eq("target_id", targetUserId)
+    .maybeSingle();
+  return Boolean(data);
 }
 
 export async function uploadMedia(file: File, folder: "avatars" | "posts" | "stories" | "media" | "messages" = "media") {
