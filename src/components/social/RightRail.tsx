@@ -38,18 +38,35 @@ export function SearchBox({ placeholder = "Search Spaces" }: { placeholder?: str
 export function FollowButton({ initial = false, targetUserId }: { initial?: boolean; targetUserId?: string }) {
   const [following, setFollowing] = useState(initial);
   const [loading, setLoading] = useState(false);
+  const [hovered, setHovered] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!targetUserId) return;
+    isFollowingUser(targetUserId)
+      .then((res) => {
+        if (!cancelled) setFollowing(res);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [targetUserId]);
 
   async function handleToggle() {
+    if (!targetUserId || loading) return;
     const next = !following;
     setFollowing(next);
-    if (targetUserId) {
-      setLoading(true);
-      try {
-        await toggleFollowUser(targetUserId);
-      } catch {}
-      finally {
-        setLoading(false);
-      }
+    setLoading(true);
+    try {
+      const res = await toggleFollowUser(targetUserId);
+      setFollowing(res.following);
+      toast.success(res.following ? "Following" : "Unfollowed");
+    } catch {
+      setFollowing(!next);
+      toast.error("Couldn't update follow");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -57,15 +74,20 @@ export function FollowButton({ initial = false, targetUserId }: { initial?: bool
     <button
       onClick={handleToggle}
       disabled={loading}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      aria-pressed={following}
       className={cn(
-        "flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-bold transition-all duration-300 active:scale-95",
+        "flex min-w-[104px] items-center justify-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-bold transition-all duration-300 active:scale-95 disabled:opacity-60",
         following
-          ? "bg-foreground/5 text-muted-foreground hover:bg-foreground/10"
+          ? hovered
+            ? "bg-rose-500/10 text-rose-500"
+            : "bg-foreground/5 text-muted-foreground"
           : "bg-gradient-to-r from-brand to-brand-pink text-white hover:shadow-glow",
       )}
     >
       {following ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-      {following ? "Following" : "Follow"}
+      {following ? (hovered ? "Unfollow" : "Following") : "Follow"}
     </button>
   );
 }
