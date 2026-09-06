@@ -1225,6 +1225,7 @@ export async function globalSearch(
   ]);
   const posts = ((postRes.data ?? []) as any[]).map((row) => rowToPost(row));
   await hydrateAuthors(posts.map((p) => p.user_id));
+  await hydrateEngagement(posts);
   const profiles = ((profileRes.data ?? []) as any[]).map((row) => rowToProfile(row));
   cacheProfiles(profiles);
   return { posts, profiles, spaces: ((spaceRes.data ?? []) as any[]) as Space[] };
