@@ -8,7 +8,8 @@ import { InfoModal } from "@/components/social/InfoModal";
 import { compact } from "@/lib/formatters";
 import { currentUserId } from "@/lib/profile-service";
 import type { Profile, Space, TrendingTag } from "@/lib/types";
-import { toggleFollowUser, getTrendingTags, getUsers, getSpaces } from "@/lib/api-client";
+import { toggleFollowUser, isFollowingUser, getTrendingTags, getUsers, getSpaces } from "@/lib/api-client";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 export function SearchBox({ placeholder = "Search Spaces" }: { placeholder?: string }) {
@@ -44,7 +45,7 @@ export function FollowButton({ initial = false, targetUserId }: { initial?: bool
     let cancelled = false;
     if (!targetUserId) return;
     isFollowingUser(targetUserId)
-      .then((res) => {
+      .then((res: boolean) => {
         if (!cancelled) setFollowing(res);
       })
       .catch(() => {});
