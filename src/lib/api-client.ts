@@ -94,6 +94,26 @@ export async function getPosts(
   if (error) throw error;
   const posts = (data ?? []).map((row: any) => rowToPost(row));
   await hydrateAuthors(posts.map((p: Post) => p.user_id));
+  await hydrateEngagement(posts);
+  return posts;
+}
+
+/** Marks each post with the signed-in user's like/repost/bookmark state. */
+async function hydrateEngagement(posts: Post[]) {
+  if (posts.length === 0) return posts;
+  try {
+    const { liked, reposted, bookmarked } = await getMyEngagement(posts.map((p) => p.id));
+    const likeSet = new Set(liked);
+    const repostSet = new Set(reposted);
+    const bookmarkSet = new Set(bookmarked);
+    for (const post of posts) {
+      post.likedByMe = likeSet.has(post.id);
+      post.repostedByMe = repostSet.has(post.id);
+      post.bookmarkedByMe = bookmarkSet.has(post.id);
+    }
+  } catch {
+    /* engagement flags are best-effort */
+  }
   return posts;
 }
 
